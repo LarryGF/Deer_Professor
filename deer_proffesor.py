@@ -2,10 +2,13 @@
 This is a echo bot.
 It echoes any incoming text messages.
 """
-
-import logging
-
-from aiogram import Bot, Dispatcher, executor, types, exceptions
+import aiogram.utils.markdown as md
+from aiogram import Bot, Dispatcher, types
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.types import ParseMode
+from aiogram.utils import executor
 import logging
 import asyncio
 import threading
@@ -16,149 +19,120 @@ import json
 import os
 from utils import transform_orders
 import pytz
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger('broadcast')
-configs = json.load(open('config.json'))
-API_TOKEN = configs['AUTHORIZATION_TOKEN']
-ORDERS = os.getenv('ORDERS', 'ordersexample.json')
-BATTLES = os.getenv('BATTLES', 'battles.json')
-battles = json.load(open(BATTLES))
+
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+configs = json.load(open('info.json'))
+API_TOKEN = configs['token']
 
-# loop = asyncio.get_event_loop()
-loop = asyncio.new_event_loop()
-
-messages_tasks: List[asyncio.Task] = []
-
-# Initialize bot and dispatcher
+loop = asyncio.get_event_loop()
 bot = Bot(token=API_TOKEN, loop=loop)
-dp = Dispatcher(bot, loop=loop)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
+
+castles = {
+    "deer": "🦌",
+    "shark": "🦈",
+    "dragon": "🐉",
+    "moon": "🌑",
+    "wolf": "🐺",
+    "potato": "🥔",
+    "eagle": "🦅"
+}
 
 
-@dp.message_handler(regexp='(^cat[s]?$|puss)')
-async def cats(message: types.Message):
-    with open('data/cats.jpg', 'rb') as photo:
-        await bot.send_photo(message.chat.id, photo, caption='Cats is here 😺',
-                             reply_to_message_id=message.message_id)
+class Form(StatesGroup):
+    me = State()  # Will be represented in storage as 'Form:name'
+    pledge = State()  # Will be represented in storage as 'Form:age'
+    badpledge = State()  # Will be represented in storage as 'Form:gender'
 
 
-@dp.message_handler(commands=['start'])
-async def start(message: types.Message):
-    await bot.send_message(message.chat.id, 'Loren es gay')
-
-
-@dp.message_handler(commands=['reset_orders'])
-async def reset_orders(message: types.Message):
-    orders = json.load(open(ORDERS))
-    ans = await _reset_orders(transform_orders(orders))
-    await bot.send_message(message.chat.id, str(ans))
-
-
-async def _reset_orders(orders):
-    global messages_tasks, battles
-    times = []
-    now = datetime.now(timezone.utc)
-    for battle in battles:
-        hour, minutes = map(int, battle.split(':'))
-        t = datetime(now.year, now.month, now.day, hour, minutes, tzinfo=timezone.utc)
-        if now > t:
-            t += timedelta(days=1)
-
-        times.append(t)
-
-    next_battle = min(times)
-    log.info(f'Next Battle: {next_battle}')
-
-    for task in messages_tasks:
-        task: asyncio.Task = task
-        if not task.done():
-            task.cancel()
-    messages_tasks.clear()
-
-    for order in orders:
-        for id in order['publish']:
-            time = next_battle - timedelta(seconds=order['time'])
-            # _send because clousure is a bitch
-            # log.info(f'Timeout {order["time"]}')
-            task = loop.create_task(
-                exec_at(time,  _send(id, order['msg'])))
-            messages_tasks.append(task)
-
-    task = loop.create_task(exec_at(next_battle, lambda : _reset_orders(orders)))
-    messages_tasks.append(task)
-    return orders
-
-
-def _send(id, msg):
-    return lambda :send_message(id, msg)
-
-
-@dp.message_handler(commands=['ping'])
-async def pong(message: types.Message):
-    log.info(message.chat.id)
-    await bot.send_message(message.chat.id, 'ping pong es muñeco muy lindo y de cartón ...')
-
-
-async def send_message(user_id: int, text: str, disable_notification: bool = False) -> bool:
+@dp.message_handler(commands=['start'], commands_prefix='/')
+async def send_welcome(message: types.Message):
     """
-    Safe messages sender
-
-    :param user_id:
-    :param text:
-    :param disable_notification:
-    :return:
+    This handler will be called when client send `/start` command.
     """
+    await Form.me.set()
 
-    msg = None
-    try:
-        msg: types.Message = await bot.send_message(user_id, text, disable_notification=disable_notification)
-    except exceptions.BotBlocked:
-        log.error(f"Target [ID:{user_id}]: blocked by user")
-    except exceptions.ChatNotFound:
-        log.error(f"Target [ID:{user_id}]: invalid user ID")
-    except exceptions.RetryAfter as e:
-        log.error(
-            f"Target [ID:{user_id}]: Flood limit is exceeded. Sleep {e.timeout} seconds.")
-        await asyncio.sleep(e.timeout)
-        return await send_message(user_id, text)  # Recursive call
-    except exceptions.UserDeactivated:
-        log.error(f"Target [ID:{user_id}]: user is deactivated")
-    except exceptions.TelegramAPIError:
-        log.exception(f"Target [ID:{user_id}]: failed")
+    await bot.send_message(message.chat.id, "Welcome, young fawn. I'm the Deer Professor, manager of the Acadeermy. \n Please go to @chtwrsbot and type /me and forward it to me so we can continue with the admission process...")
+
+
+@dp.message_handler(state=Form.me)
+async def process_me(message: types.Message, state: FSMContext):
+    """
+    Process user's me
+    """
+    if message.forward_from == None or not message.forward_from['id'] == 408101137:
+        await bot.send_message(message.chat.id, "It looks like you just copied the message and didn't forward it from @chtwrsbot. \nHow do I know that you didn't make that up? ")
+
+    elif 'of deerhorn castle' in message.text.lower():
+        async with state.proxy() as data:
+            data['me'] = message.text
+        await Form.next()
+        await bot.send_message(message.chat.id, "Great, now send your pledge")
+
     else:
-        log.info(f"Target [ID:{user_id}]: success")
-        chat: types.Chat = await bot.get_chat(user_id)
-        log.info(f'Chat {chat}')
-        log.info(f'MSG {msg}')
-        log.info(f'MSGID {msg["message_id"]}')
-        id = msg["message_id"]
-        log.info(f'{chat} {id}')
-        sucess = await bot.pin_chat_message(chat['id'], id)
-        # sucess = await chat.pin_message(msg['message_id'])
-        log.info(f'Sucess {sucess}')
-
-        return True
-    return False
+        await bot.send_message(message.chat.id, "It looks like you're not a warrior from Deerhorn Castle, buh bye")
 
 
-async def do_delay(timeout: float, func):
-    log.info(f'await start  {timeout}, {type(timeout)})')
-    await asyncio.sleep(timeout, loop=loop)
-    log.info(f'await finish {timeout}')
+# Check age. Age gotta be digit
+@dp.message_handler(state=Form.pledge)
+async def process_pledge(message: types.Message):
+    """
+    Process user's pledge
+    """
 
-    await func()
+    if message.forward_from == None or not message.forward_from['id'] == 408101137:
+        await bot.send_message(message.chat.id, "It looks like you just copied the message and didn't forward it from @chtwrsbot. \nHow do I know that you didn't make that up? Please forward it now.")
+    
+    elif 'you were invited by the knight of the' and 'deerhorn castle' in message.text.lower():
+        # await state.update_data(pledge = message.text)
+        await bot.send_message(message.chat.id, "Fabulous, you were invited by a fellow deer, you're good to go")
+        return await bot.send_message(message.chat.id, "You can join the Acadeermy using this link t.me/commandbottest")
+
+    else:
+        await Form.badpledge.set()
+        return await bot.send_message(message.chat.id, "Hmmm, it looks like you were invited by a knight from another castle \nI'll put you in contact with our human teachers, feel free to PM (Private Message) them and they'll finish processing your admission.")
+        
 
 
-async def exec_at(moment: datetime, func):
-    assert moment > datetime.now(timezone.utc), "The moment has to be begger than now"
-    now = datetime.now(timezone.utc)
-    timelapse = moment - now
 
-    await do_delay(timelapse.total_seconds(), func)
+
+@dp.message_handler(state=Form.badpledge)
+async def bad_pledge(message: types.Message):
+    # Update state and data
+    await Form.next()
+    # await state.update_data(age=int(message.text))
+
+    # Configure ReplyKeyboardMarkup
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+    markup.add("Male", "Female")
+    markup.add("Other")
+
+    await message.reply("What is your gender?", reply_markup=markup)
+
+
+
+
+# @dp.message_handler(state=Form.gender)
+# async def process_gender(message: types.Message, state: FSMContext):
+#     async with state.proxy() as data:
+#         data['gender'] = message.text
+
+#         # Remove keyboard
+#         markup = types.ReplyKeyboardRemove()
+
+#         # And send message
+#         await bot.send_message(message.chat.id, md.text(
+#             md.text('Hi! Nice to meet you,', md.bold(data['name'])),
+#             md.text('Age:', data['age']),
+#             md.text('Gender:', data['gender']),
+#             sep='\n'), reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+
+#         # Finish conversation
+#         data.state = None
 
 
 if __name__ == '__main__':
-    # loop.create_task()
-    loop.create_task(_reset_orders(transform_orders(json.load((open(ORDERS))))))
     executor.start_polling(dp, loop=loop, skip_updates=True)

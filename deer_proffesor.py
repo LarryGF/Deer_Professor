@@ -45,10 +45,10 @@ castles = {
 class Form(StatesGroup):
     me = State()  # Will be represented in storage as 'Form:name'
     pledge = State()  # Will be represented in storage as 'Form:age'
-    badpledge = State()  # Will be represented in storage as 'Form:gender'
+    regular_behavior = State()  # Will be represented in storage as 'Form:gender'
 
 
-@dp.message_handler(commands=['start'], commands_prefix='/')
+@dp.message_handler(commands=['start'], commands_prefix='/' )
 async def send_welcome(message: types.Message):
     """
     This handler will be called when client send `/start` command.
@@ -81,26 +81,34 @@ async def process_pledge(message: types.Message):
     """
     Process user's pledge
     """
-
+    print(message.text)
+    print('you were invited by the knight of the' and 'deerhorn castle' in message.text.lower())
     if message.forward_from == None or not message.forward_from['id'] == 408101137:
         print('copied or not forwarded')
         await bot.send_message(message.chat.id, "It looks like you just copied your pledge and didn't forward it from @chtwrsbot. \nHow do I know that you didn't make that up? Please forward it now.")
     
-    elif 'you were invited by the knight of the' and 'deerhorn castle' in message.text.lower():
-        # await state.update_data(pledge = message.text)
-        print('good')
-        await bot.send_message(message.chat.id, "Fabulous, you were invited by a fellow deer, you're good to go")
-        return await bot.send_message(message.chat.id, "You can join the Acadeermy using this link t.me/commandbottest")
+    elif 'you were invited by the knight of the' in message.text.lower():
+        if 'deerhorn castle' not in message.text.lower():
+            await bot.send_message(message.chat.id, "Hmmm, it looks like you were invited by a knight from another castle \nI'll put you in contact with our human teachers, feel free to PM (Private Message) them and they'll finish processing your admission.")
+            return await bot.send_message(message.chat.id, 'This is the list of available teachers: \n@larrygf \n@hiancd \n@scarlettV \n@cptspooks')
+        else:            
+            print('good')
+            await Form.regular_behavior.set()
+            await bot.send_message(message.chat.id, "Fabulous, you were invited by a fellow deer, you're good to go")
+            return await bot.send_message(message.chat.id, "You can join the Acadeermy using this link t.me/commandbottest")
 
     else:
-        print('bad pledge')
-        # await Form.badpledge.set()
-        # markup = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-        # markup.add("@larrygf", "@hiancd")
-        # markup.add("@scarlettV","@cptspooks")
-        await bot.send_message(message.chat.id, "Hmmm, it looks like you were invited by a knight from another castle \nI'll put you in contact with our human teachers, feel free to PM (Private Message) them and they'll finish processing your admission.")
-        return await bot.send_message(message.chat.id, 'This is the list of available teachers: \n@larrygf \n@hiancd \n@scarlettV \n@cptspooks')
-        
+        await bot.send_message(message.chat.id, "It looks like you didn't forward a valid pledge, try again")
+
+
+@dp.message_handler(state=Form.regular_behavior)
+async def process_me(message: types.Message, state: FSMContext):
+    """
+    Normal bot behavior
+    """
+    await bot.send_message(message.chat.id, "Additional commands are not supported right now")
+
+
 
 
 
